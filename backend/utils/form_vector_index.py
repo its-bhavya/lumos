@@ -1,76 +1,84 @@
-import json
 import chromadb
-from pathlib import Path
-from typing import List
 import google.generativeai as genai
-from dotenv import load_dotenv
-import os
-from tqdm import tqdm
+from config import EMBEDDING_MODEL, GEMINI_API_KEY
+from typing import List
 
-load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
-# Path to your processed segments
-SEGMENT_DIR = Path("resources/transcripts/processed/segments")
+# ----------------------------------------------------------
+# FAST BATCH EMBEDDING
+# ----------------------------------------------------------
+def embed_texts(texts: List[str], batch_size=32):
+    embeddings = []
 
-# ChromaDB persistent directory
-CHROMA_DIR = Path("resources/vectorstore")
-CHROMA_DIR.mkdir(exist_ok=True)
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
+        try:
+            resp = genai.embed_content(
+                model=EMBEDDING_MODEL,
+                content=batch,
+                task_type="retrieval_document"
+            )
+
+            # gemini returns a list of embedding dicts
+            batch_embs = resp["embedding"]
+            embeddings.extend(batch_embs)
+
+        except Exception as e:
+            print("Embedding failed:", e)
+            # fallback zero vector
+            for _ in batch:
+                embeddings.append([0]*768)
+
+    return embeddings
 
 
-def embed_texts(texts: List[str], batch_size=10) -> List[List[float]]:
-    """
-    Generate embeddings using Gemini embedding model in batches.
-    Shows progress with tqdm.
-    """
-    model = "models/text-embedding-004"
-    all_embeddings = []
+# ----------------------------------------------------------
+# BUILD FAST COLLECTION
+# ----------------------------------------------------------
+def build_collection_for_session(session_id: str, segments: List[dict]):
+    client = chromadb.Client()
+    col_name = f"session_{session_id}"
 
-    for i in tqdm(range(0, len(texts), batch_size), desc="Embedding batches"):
-        batch = texts[i:i + batch_size]
-        embeddings = genai.embed_content(
-            model=model,
-            content=batch,
-            task_type="retrieval_document"
-        )
-        all_embeddings.extend(embeddings['embedding'])
+    # reset collection
+    try:
+        client.delete_collection(col_name)
+    except:
+        pass
 
-    return all_embeddings
+    collection = client.create_collection(name=col_name)
 
+    # extract texts
+    texts = [s["text"] for s in segments if s.get("text")]
+    if not texts:
+        return client, collection
 
-def build_vector_index():
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    collection = client.get_or_create_collection(
-        name="podcast_segments",
-        metadata={"hnsw:space": "cosine"}
+    # fast embedding
+    embeddings = embed_texts(texts)
+
+    # aligned metadata list
+    metadatas = []
+    for s in segments:
+        if not s.get("text"):
+            continue
+
+        md = {}
+        for k in ("source_type", "source_id", "start", "end", "page", "chunk_index"):
+            if k in s:
+                md[k] = s[k]
+
+        metadatas.append(md)
+
+    # aligned ids
+    ids = [str(i) for i in range(len(texts))]
+
+    # add everything in one fast call
+    collection.add(
+        ids=ids,
+        documents=texts,
+        embeddings=embeddings,
+        metadatas=metadatas,
     )
 
-    segment_files = list(SEGMENT_DIR.glob("*.json"))
-    print(f"Found {len(segment_files)} segment files.\n")
-
-    # tqdm progress for JSON files
-    for seg_file in tqdm(segment_files, desc="Processing JSON files"):
-        with open(seg_file, "r", encoding="utf-8") as f:
-            segments = json.load(f)
-
-        texts = [seg["text"] for seg in segments]
-        ids = [f"{seg_file.stem}_{i}" for i in range(len(segments))]
-
-        # Batch-embedding with progress bar
-        embeddings = embed_texts(texts)
-
-        collection.add(
-            ids=ids,
-            documents=texts,
-            embeddings=embeddings,
-            metadatas=[
-                {"file": seg_file.stem, "start": seg["start"], "end": seg["end"]}
-                for seg in segments
-            ]
-        )
-
-    print("\n✨ Vector index build complete!")
-
-
-if __name__ == "__main__":
-    build_vector_index()
+    return client, collection
