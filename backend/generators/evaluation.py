@@ -20,6 +20,7 @@ class AnswerEvaluationSignature(dspy.Signature):
         - "coverage_percent": the percent of key points covered in the user_answer, integer 0-100
         - "missing_points": list of keypoints not mentioned
         - "evaluation_feedback": one-sentence feedback of user answer
+        - "correct_answer":the exact same correct answer as that in the input.
         """
     )
 
