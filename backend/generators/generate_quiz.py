@@ -6,13 +6,15 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
 PROMPT_QUIZ = """
-Generate {num_questions} quiz questions at a {difficulty} difficulty level,with {type} type of answers, suitable for university/school exams.
+Generate {num_questions} high-quality, professional quiz questions at a {difficulty} difficulty level, with {type} type of answers, suitable for university or school exams.
 
 Rules:
 - Base questions ONLY on the context below.
 - Use both the structured topic/subtopic list AND the raw text.
-- Make questions conceptual and answerable directly from the context.
-- Do NOT add new facts.
+- Questions must be **conceptual, relevant, and exam-appropriate**.
+- Avoid trivial, opinion-based, or meta-level questions (e.g., "what percentage of syllabus is covered?").
+- Each question should test understanding, application, or reasoning based on the context.
+- Do NOT introduce any new facts or external information.
 - Return VALID JSON ONLY.
 
 JSON Format:
@@ -34,6 +36,7 @@ Raw Context:
 
 JSON Output:
 """
+
 def clean_json_field(field:str):
             field = re.sub(r"^```(?:json)?\n?", "", field.strip())
             field = re.sub(r"\n?```$", "", field)
