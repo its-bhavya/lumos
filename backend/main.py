@@ -1,17 +1,27 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Response
 from fastapi.responses import JSONResponse
 from session_manager import create_session, get_session, delete_session, session_store
+from config import GEMINI_API_KEY
 from utils.youtube_transcripts import extract_video_id, download_transcript
 from utils.pdf_service import load_pdf_chunks
 from utils.audio_service import transcribe
 from utils.text_service import chunk_plain_text
 from utils.form_vector_index import build_collection_for_session
 from utils.rag_agent import query_collection_and_answer
+from generators.generate_notes import generate_notes_from_transcripts
+from generators.generate_quiz import generate_quiz_from_transcripts
+from generators.extractor_agent import MindmapExtractor
+from generators.mindmap_generator import generate_mindmap_svg_from_json
 from pathlib import Path
 import shutil
 import tempfile
+import dspy
+import json
+import re
 
+api_key = GEMINI_API_KEY
 app = FastAPI(title="Multi-source RAG backend (hackathon)")
+dspy.configure(lm=dspy.LM("gemini/gemini-2.0-flash", api_key=api_key))
 
 @app.post("/create_session")
 def api_create_session():
@@ -118,3 +128,87 @@ def api_ask(session_id: str = Form(...), question: str = Form(...)):
 def api_reset(session_id: str = Form(...)):
     ok = delete_session(session_id)
     return {"deleted": ok}
+
+@app.post("/get_notes")
+def api_get_notes(session_id: str = Form(...)):
+    sess = get_session(session_id)
+    if not sess:
+        return JSONResponse({"error":"invalid session_id"}, status_code=400)
+    
+    if "segments" not in sess or len(sess["segments"])==0:
+        return JSONResponse({"error":"No content added"}, status_code=400)
+    
+    docs = [s["text"] for s in sess["segments"] if s.get("text")]
+
+    notes = generate_notes_from_transcripts(docs)
+    return {"notes":notes}
+
+@app.post("/extract")
+def api_extract_topics_json(session_id: str = Form(...)):
+    extractor = MindmapExtractor()
+    sess = get_session(session_id)
+    if not sess:
+        return JSONResponse({"error":"invalid session_id"}, status_code=400)
+    
+    if "segments" not in sess or len(sess["segments"])==0:
+        return JSONResponse({"error":"No content added"}, status_code=400)
+
+    transcript = [s["text"] for s in sess["segments"] if s.get("text")]
+    transcript = ' '.join(transcript)
+    try:
+        result = extractor.forward(transcript=transcript)
+        def clean_json_field(field:str):
+            field = re.sub(r"^```(?:json)?\n?", "", field.strip())
+            field = re.sub(r"\n?```$", "", field)
+            return json.loads(field)
+        subtopics = clean_json_field(result.subtopics)
+        data = {"central_topic":result.central_topic, "subtopics":subtopics}
+        sess["extracted_topics"] = data
+        return data
+    except Exception as e:
+        return JSONResponse({"error":"Error while extracting topics:{e}"}, status_code=500)
+
+@app.post("/generate_mindmap")
+def api_generate_mindmap(session_id: str = Form(...)):
+    sess = get_session(session_id)
+
+    if not sess or "extracted_topics" not in sess:
+        return JSONResponse({"error": "Run /extract first"}, status_code=400)
+
+    data = sess["extracted_topics"]
+
+    
+    svg_clean = generate_mindmap_svg_from_json(data)
+    return Response(content=svg_clean, media_type="image/svg+xml")
+
+@app.post("/get_quiz_questions")
+def api_generate_quiz(session_id: str = Form(...), num_questions: int = Form(5), difficulty: str = Form("medium"), type:str = Form("Short")):
+    sess = get_session(session_id)
+    if not sess:
+        return JSONResponse({"error": "invalid session_id"}, status_code=400)
+
+    if "segments" not in sess or not sess["segments"]:
+        return JSONResponse({"error": "No content added"}, status_code=400)
+    
+    if "extracted_topics" not in sess:
+        return JSONResponse({"error": "Please call /extract first."}, status_code=400)
+
+    # raw text
+    docs = [s["text"] for s in sess["segments"] if s.get("text")]
+    full_context = "\n".join(docs)
+
+    # structured context
+    extracted = sess["extracted_topics"]
+
+    quiz = generate_quiz_from_transcripts(
+        topics_json=extracted,
+        transcript=full_context,
+        num_questions=num_questions,
+        difficulty=difficulty,
+        type=type
+    )
+
+    sess["quiz"] = quiz
+    return {"quiz_questions": quiz}
+
+    
