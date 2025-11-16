@@ -22,7 +22,7 @@ def extract_video_id(url: str) -> str:
 def download_transcript(video_id: str) -> Dict:
     ytt = YouTubeTranscriptApi()
     transcript_list = ytt.list(video_id)
-    transcript = transcript_list.find_transcript(['en']).fetch()
+    transcript = transcript_list.find_transcript(['en','hi']).fetch()
     formatter = JSONFormatter()
     timestamped = formatter.format_transcript(transcript)
 
