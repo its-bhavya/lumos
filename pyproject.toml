@@ -12,4 +12,5 @@ dependencies = [
     "isodate>=0.7.2",
     "pypdf>=6.2.0",
     "python-multipart>=0.0.20",
+    "uvicorn>=0.38.0",
 ]
