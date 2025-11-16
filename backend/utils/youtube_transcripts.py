@@ -1,51 +1,88 @@
-from typing import Dict, List
-from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api.formatters import JSONFormatter
-from urllib.parse import urlparse, parse_qs
-import requests
-import os
+"""
+YouTube transcript extractor using yt-dlp + your existing transcribe() pipeline.
+This method is extremely reliable and works even when pytube or youtube_transcript_api fail.
+"""
 
-API_KEY = os.getenv("YOUTUBE_API_KEY")
+import tempfile
+import shutil
+from pathlib import Path
+import subprocess
+from audio_service import transcribe
+from textwrap import wrap
 
-def extract_video_id(url: str) -> str:
-    parsed = urlparse(url)
-    if parsed.query:
-        qs = parse_qs(parsed.query)
-        if "v" in qs:
-            return qs["v"][0]
-    if parsed.netloc and "youtu.be" in parsed.netloc:
-        return parsed.path.lstrip("/")
-    if "/embed/" in parsed.path:
-        return parsed.path.split("/embed/")[1]
-    raise ValueError("Could not extract video id from url")
 
-def download_transcript(video_id: str) -> Dict:
-    ytt = YouTubeTranscriptApi()
-    transcript_list = ytt.list(video_id)
-    transcript = transcript_list.find_transcript(['en','hi']).fetch()
-    formatter = JSONFormatter()
-    timestamped = formatter.format_transcript(transcript)
+def download_youtube_audio(youtube_url: str, output_dir: str) -> Path:
+    """
+    Downloads audio from a YouTube URL using yt-dlp.
+    Returns the path to the downloaded audio file.
+    """
 
-    metadata = {}
-    if API_KEY:
-        url = f"https://www.googleapis.com/youtube/v3/videos?id={video_id}&key={API_KEY}&part=snippet,statistics"
-        try:
-            resp = requests.get(url, timeout=10).json()
-            if resp.get("items"):
-                item = resp["items"][0]
-                metadata = {
-                    "title": item["snippet"]["title"],
-                    "channel_title": item["snippet"]["channelTitle"],
-                    "published_at": item["snippet"]["publishedAt"],
-                    "description": item["snippet"]["description"]
-                }
-        except Exception:
-            metadata = {}
+    output_template = str(Path(output_dir) / "audio.%(ext)s")
 
-    return {
-        "source_type": "youtube",
-        "source_id": video_id,
-        "raw_fragments": transcript,           # list of {text, start, duration}
-        "timestamped": timestamped,
-        "metadata": metadata
-    }
+    command = [
+        "yt-dlp",
+        "-f",
+        "bestaudio/best",
+        "-o",
+        output_template,
+        youtube_url,
+    ]
+
+    try:
+        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"yt-dlp failed: {e.stderr.decode()}") from e
+
+    # find downloaded file
+    for f in Path(output_dir).glob("audio.*"):
+        return f
+
+    raise RuntimeError("Audio file not found after yt-dlp download.")
+
+
+def fetch_youtube_transcript_segments(youtube_url: str):
+    """
+    Downloads audio using yt-dlp → transcribes using audio_service → chunks into RAG segments.
+    """
+
+    tmpdir = tempfile.mkdtemp()
+
+    try:
+        # Step 1: Download audio
+        audio_path = download_youtube_audio(youtube_url, tmpdir)
+
+        # Step 2: Transcribe using your existing pipeline
+        raw_segments = transcribe(audio_path)
+        if not raw_segments:
+            raise RuntimeError("Transcription returned empty result.")
+
+        full_text = raw_segments[0]["text"]
+
+        # Step 3: Chunk the transcript for RAG
+        CHUNK_SIZE = 800  # characters
+
+        chunks = wrap(full_text, CHUNK_SIZE)
+
+        segments = []
+        for idx, chunk in enumerate(chunks):
+            segments.append({
+                "source_type": "youtube",
+                "source_id": youtube_url,
+                "start": None,
+                "end": None,
+                "chunk_index": idx,
+                "text": chunk
+            })
+
+        return segments
+
+    except Exception as e:
+        raise RuntimeError(f"Error extracting YouTube transcript: {e}") from e
+
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+segments = fetch_youtube_transcript_segments("https://youtu.be/OrM7nZcxXZU")
+print(len(segments))      # number of chunks
+print(segments[0]["text"])  # first chunk
