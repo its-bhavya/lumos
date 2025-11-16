@@ -20,6 +20,10 @@ import dspy
 import json
 import re
 import os
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("uvicorn.error")
 
 api_key = os.getenv("GEMINI_API_KEY")
 app = FastAPI(title="Lumos Backend")
@@ -43,29 +47,35 @@ def api_add_youtube(session_id: str = Form(...), youtube_url: str = Form(...)):
     sess = get_session(session_id)
     if not sess:
         return JSONResponse({"error": "invalid session_id"}, status_code=400)
-    try:
-        vid = extract_video_id(youtube_url)
-        data = download_transcript(vid)
-        fragments = data["raw_fragments"]
-        # Convert fragments to simple segments (merge small fragments into ~sentences)
-        # simplistic: use each fragment as a segment, but you can reuse your merge/segment code
-        for i, frag in enumerate(fragments):
-            start = frag.start
-            end = frag.start + frag.duration
-            text = frag.text
 
+    try:
+        logger.debug(f"Received YouTube URL: {youtube_url}")
+
+        vid = extract_video_id(youtube_url)
+        logger.debug(f"Extracted video id: {vid}")
+
+        data = download_transcript(vid)
+        logger.debug(f"Transcript data keys: {list(data.keys())}")
+
+        fragments = data["raw_fragments"]
+        logger.debug(f"Fragments length: {len(fragments)}")
+
+        for i, frag in enumerate(fragments):
             sess["segments"].append({
                 "source_type": "youtube",
                 "source_id": vid,
-                "start": start,
-                "end": end,
+                "start": frag.start,
+                "end": frag.start + frag.duration,
                 "chunk_index": i,
-                "text": text
+                "text": frag.text
             })
-        return {"status": "ok", "added": len(fragments)}
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
 
+        return {"status": "ok", "added": len(fragments)}
+
+    except Exception as e:
+        logger.exception("Error inside /add_youtube")   # <-- THIS IS IMPORTANT
+        return JSONResponse({"error": str(e)}, status_code=500)
+    
 @app.post("/upload_pdf")
 async def api_upload_pdf(session_id: str = Form(...), file: UploadFile = File(...)):
     sess = get_session(session_id)
