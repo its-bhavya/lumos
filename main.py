@@ -1,7 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form, Response
 from fastapi.responses import JSONResponse
 from backend.session_manager import create_session, get_session, delete_session, session_store
-from backend.config import GEMINI_API_KEY
 from backend.utils.youtube_transcripts import extract_video_id, download_transcript
 from backend.utils.pdf_service import load_pdf_chunks
 from backend.utils.audio_service import transcribe
@@ -19,8 +18,9 @@ import tempfile
 import dspy
 import json
 import re
+import os
 
-api_key = GEMINI_API_KEY
+api_key = os.getenv("GEMINI_API_KEY")
 app = FastAPI(title="Lumos Backend")
 dspy.configure(lm=dspy.LM("gemini/gemini-2.0-flash", api_key=api_key))
 
