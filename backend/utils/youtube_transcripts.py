@@ -9,36 +9,26 @@ from pathlib import Path
 import subprocess
 from backend.utils.audio_service import transcribe
 from textwrap import wrap
-
+from yt_dlp import YoutubeDL
 
 def download_youtube_audio(youtube_url: str, output_dir: str) -> Path:
     """
-    Downloads audio from a YouTube URL using yt-dlp.
-    Returns the path to the downloaded audio file.
+    Downloads audio using yt-dlp python API.
     """
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "outtmpl": str(Path(output_dir) / "audio.%(ext)s"),
+        "quiet": True,
+    }
 
-    output_template = str(Path(output_dir) / "audio.%(ext)s")
-
-    command = [
-        "yt-dlp",
-        "-f",
-        "bestaudio/best",
-        "-o",
-        output_template,
-        youtube_url,
-    ]
-
-    try:
-        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"yt-dlp failed: {e.stderr.decode()}") from e
+    with YoutubeDL(ydl_opts) as ydl:
+        ydl.download([youtube_url])
 
     # find downloaded file
     for f in Path(output_dir).glob("audio.*"):
         return f
 
     raise RuntimeError("Audio file not found after yt-dlp download.")
-
 
 def fetch_youtube_transcript_segments(youtube_url: str):
     """
