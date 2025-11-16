@@ -2,7 +2,7 @@ from fastapi import FastAPI, UploadFile, File, Form, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from backend.session_manager import create_session, get_session, delete_session, session_store
-from backend.utils.youtube_transcripts import fetch_youtube_transcript_segments
+from backend.utils.youtube_transcripts import extract_video_id, download_transcript
 from backend.utils.pdf_service import load_pdf_chunks
 from backend.utils.audio_service import transcribe
 from backend.utils.text_service import chunk_plain_text
@@ -49,18 +49,33 @@ def api_add_youtube(session_id: str = Form(...), youtube_url: str = Form(...)):
         return JSONResponse({"error": "invalid session_id"}, status_code=400)
 
     try:
-        # Extract transcript segments (robust: yt-dlp + AssemblyAI)
-        segments = fetch_youtube_transcript_segments(youtube_url)
+        logger.debug(f"Received YouTube URL: {youtube_url}")
 
-        # Add to session store
-        sess["segments"].extend(segments)
+        vid = extract_video_id(youtube_url)
+        logger.debug(f"Extracted video id: {vid}")
 
-        return {"status": "ok", "added": len(segments)}
+        data = download_transcript(vid)
+        logger.debug(f"Transcript data keys: {list(data.keys())}")
+
+        fragments = data["raw_fragments"]
+        logger.debug(f"Fragments length: {len(fragments)}")
+
+        for i, frag in enumerate(fragments):
+            sess["segments"].append({
+                "source_type": "youtube",
+                "source_id": vid,
+                "start": frag.start,
+                "end": frag.start + frag.duration,
+                "chunk_index": i,
+                "text": frag.text
+            })
+
+        return {"status": "ok", "added": len(fragments)}
 
     except Exception as e:
-        print("Error inside /add_youtube:", e)
+        logger.exception("Error inside /add_youtube")   # <-- THIS IS IMPORTANT
         return JSONResponse({"error": str(e)}, status_code=500)
-            
+    
 @app.post("/upload_pdf")
 async def api_upload_pdf(session_id: str = Form(...), file: UploadFile = File(...)):
     sess = get_session(session_id)
