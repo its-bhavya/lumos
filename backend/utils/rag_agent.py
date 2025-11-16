@@ -36,7 +36,7 @@ def query_collection_and_answer(collection, query: str, n_results: int = 5):
 
     context = "\n\n".join(ctx_pieces)
 
-    prompt = """
+    prompt = f"""
 You are an AI learning companion. Your job is to explain things in a warm, conversational, and student-friendly way—while staying strictly grounded in the provided context.
 
 Your goals:
