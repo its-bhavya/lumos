@@ -1,9 +1,7 @@
 import google.generativeai as genai
-import json, re
-from config import GEMINI_API_KEY, GENERATION_MODEL
+import json, re, os
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 PROMPT_QUIZ = """
 Generate {num_questions} high-quality, professional quiz questions at a {difficulty} difficulty level, with {type} type of answers, suitable for university or school exams.

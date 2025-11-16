@@ -1,8 +1,9 @@
 import google.generativeai as genai
-from config import GEMINI_API_KEY, GENERATION_MODEL
+import os
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+genai.configure(api_key=GEMINI_API_KEY)
 
 PROMPT_NOTES = """
 You are an AI study assistant tasked with creating **exam-ready, structured, and comprehensive study notes**.

@@ -1,8 +1,9 @@
 import google.generativeai as genai
-from config import EMBEDDING_MODEL, GENERATION_MODEL, GEMINI_API_KEY
+import os
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+EMBEDDING_MODEL = "models/text-embedding-004"
+GENERATION_MODEL = "gemini-2.0-flash"
 
 def query_collection_and_answer(collection, query: str, n_results: int = 5):
     # embed the query

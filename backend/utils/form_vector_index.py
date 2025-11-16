@@ -1,11 +1,10 @@
-import chromadb
+import chromadb, os
 import google.generativeai as genai
-from config import EMBEDDING_MODEL, GEMINI_API_KEY
 from typing import List
 from concurrent.futures import ThreadPoolExecutor
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+EMBEDDING_MODEL = "models/text-embedding-004"
 
 # ----------------------------------------------------------
 # FAST BATCH EMBEDDING WITH PARALLELIZATION

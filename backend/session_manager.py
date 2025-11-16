@@ -1,7 +1,8 @@
 import uuid
 import shutil
 from pathlib import Path
-from config import BASE_TEMP_DIR
+
+BASE_TEMP_DIR = Path("/tmp/rag_sessions")
 
 # In-memory session store:
 # session_store[session_id] = {
