@@ -10,8 +10,9 @@ from utils.form_vector_index import build_collection_for_session
 from utils.rag_agent import query_collection_and_answer
 from generators.generate_notes import generate_notes_from_transcripts
 from generators.generate_quiz import generate_quiz_from_transcripts
-from generators.extractor_agent import MindmapExtractor
+from generators.extractor_agent import MindmapExtractor, KeyPointExtractor, clean_json_field
 from generators.mindmap_generator import generate_mindmap_svg_from_json
+from generators.evaluation import AnswerEvaluator
 from pathlib import Path
 import shutil
 import tempfile
@@ -209,6 +210,77 @@ def api_generate_quiz(session_id: str = Form(...), num_questions: int = Form(5),
     )
 
     sess["quiz"] = quiz
+    sess["quiz_answers"] = {}
     return {"quiz_questions": quiz}
 
+@app.post("/submit_answer")
+def submit_answer(session_id: str = Form(...), question_num:int = Form(...), user_answer:str = Form(...)):
+
+    sess = get_session(session_id)
+    if "quiz" not in sess:
+        return JSONResponse({"error":"No quiz started"}, status_code=400)
+    
+    q = next((q for q in sess["quiz"] if q["question_num"]==question_num), None)
+    if not q:
+        return JSONResponse({"error":"invalid question_num"}, status_code=400)
+    
+    correct_answer = q["answer"]
+    keypoints_extractor = KeyPointExtractor()
+    result_raw = keypoints_extractor(answer=correct_answer)
+    result = clean_json_field(result_raw.key_points)
+
+    evaluator = AnswerEvaluator()
+    evaluation_json_raw = evaluator(user_answer=user_answer, keypoints=result,  correct_answer=correct_answer)
+    evaluations_json = clean_json_field(evaluation_json_raw.evaluation_json)
+
+    sess["quiz_answers"][question_num] = {
+        "user_answer":user_answer, 
+        **evaluations_json
+    }
+
+    return evaluations_json
+
+@app.post("/finish_quiz")
+def finish_quiz(session_id:str = Form(...)):
+    sess = get_session(session_id)
+
+    quiz = sess.get("quiz", [])
+    answers = sess.get("quiz_answers", {})
+
+    total_q = len(quiz)
+    print(total_q)
+    total_score = sum(a["score"] for a in answers.values())
+    print(total_score)
+
+    accuracy = (total_score/total_q)*100
+
+    topic_scores = {}
+
+    for q in quiz:
+        num = q['question_num']
+        print(num)
+        print(q['question'])
+        topic = q['topic']
+
+        score = answers.get(num, {}).get('score', 0)
+        print(score)
+        topic_scores.setdefault(topic, []).append(score)
+
+    topic_strength = {
+        t: (sum(scores)/len(scores))
+        for t, scores in topic_scores.items()
+    }
+
+    strong = [t for t, s in topic_strength.items() if s>=0.8]
+    weak = [t for t, s in topic_strength.items() if s <0.5]
+
+    result = {
+        "accuracy":round(accuracy, 1),
+        "strong_topics":strong,
+        "weak_topics":weak,
+        "topic_strength":topic_strength
+    }
+
+    sess['quiz_result'] = result
+    return result
     
