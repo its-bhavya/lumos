@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: lumos-backend
-    plan: starter
-    env: docker
-    dockerfilePath: ./Dockerfile
-    autoDeploy: true
