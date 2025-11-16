@@ -7,7 +7,7 @@ import tempfile
 import shutil
 from pathlib import Path
 import subprocess
-from audio_service import transcribe
+from backend.utils.audio_service import transcribe
 from textwrap import wrap
 
 
