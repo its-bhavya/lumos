@@ -2,14 +2,12 @@
 # 1. Base Python Image
 # -------------------------------------------
 FROM python:3.12-slim
-
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 # -------------------------------------------
 # 2. Install system dependencies
 # -------------------------------------------
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    graphviz \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y graphviz
 
 # -------------------------------------------
 # 3. Install uv package manager
